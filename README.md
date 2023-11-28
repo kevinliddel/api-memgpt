@@ -2,7 +2,7 @@
 
 Installation and deployment:
 
-1. Copy .env.exemple to .env and fill it with your apikey and you frontend uri.
+1. Copy .env.example to .env and fill it with your apikey and you frontend uri.
 
 2. Execute those commands:
 
