@@ -1,5 +1,5 @@
 import anyio
 
 async def stream_response(content: str):
-    for word in content.split():
-        yield f"{word} "
+    for line in content.split('\n'):
+        yield f"{line}\n"
