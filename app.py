@@ -277,4 +277,3 @@ async def stream_response(response):
             yield chunk
     except WebSocketDisconnect:
         pass
-
