@@ -7,3 +7,12 @@ class Session(BaseModel):
 
 class Message(BaseModel):
     prompt: str
+
+
+class RecallMemoryStats(BaseModel):
+    total_messages: int
+    system: int
+    user: int
+    assistant: int
+    function: int
+    other: int

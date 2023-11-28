@@ -1,4 +1,4 @@
-pymemgpt
 fastapi
 uvicorn
 python-dotenv
+-e git+https://github.com/cpacker/MemGPT.git#egg=pymemgpt

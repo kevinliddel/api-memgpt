@@ -12,9 +12,20 @@ Installation and deployment:
 
 - `uvicorn main:app`
 
-Usage : 
+# Usage : 
+
+### Session
 - get session_id on `GET /chat/init`
+
+### Chats
 - connect to websocket on `WS /chat/socket/{session_id}`
+- streaming responses: `POST /chat/stream/{session_id}`
+
+### Memory
+- retreive recall memory stats : `GET /memory/{session_id}/recall/stats`
+- TO DO : 
+    - archival  memory
+    - search on memory 
 
 Using docker: 
 

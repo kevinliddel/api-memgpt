@@ -1,9 +1,14 @@
 import os
+import re
 
 import json
 import glob
 
+from typing import Optional
+from datetime import date
+
 import memgpt.presets.presets as presets
+from memgpt.memory import DummyRecallMemory as RecallMemory
 import openai
 
 from pathlib import Path
@@ -50,6 +55,25 @@ def parse_step(contents):
     except Exception as err:
         print('Error parsing step contents', str(err))
         return ''
+
+
+def parse_recall_memory_stats(recall_memory: RecallMemory) -> dict:
+    """
+    Parse memory from agent response from recall to get full memory.
+
+    :param memory: Memory from agent response.
+    :return Stats of memory in dict.
+    """
+    lines = str(recall_memory).split('\n')
+    res = {}
+
+    pattern = re.compile(r'(\d+)\s+([\w\s]+)')
+    for line in lines:
+        matches = pattern.findall(line)
+        for value, key in matches:
+            res[key.strip().replace(' ', '_')] = int(value)
+
+    return res
 
 
 class MemGptAPI():
@@ -112,3 +136,29 @@ class MemGptAPI():
         agent.save()
 
         return parse_step(messages)
+
+
+    def get_recall_memory_stats(self) -> str:
+        """
+        Get memory from agent
+
+        :return: Memory from agent
+        """
+        agent: Agent = Agent.load_agent(interface, self.agent_config)
+        
+        if recall_mem := agent.persistence_manager.recall_memory:
+            return parse_recall_memory_stats(recall_mem)
+
+
+    def search_recall_memory(self, start_date: Optional[date] = None, end_date: Optional[date] = None, text_search: Optional[str] = None) -> list:
+        """
+        Search memory from agent
+
+        :return: Memory from agent
+        """
+        agent: Agent = Agent.load_agent(interface, self.agent_config)
+        if start_date and end_date:
+            messages, count = agent.persistence_manager.recall_memory.date_search(start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+        elif text_search:
+            messages, count = agent.persistence_manager.recall_memory.text_search(text_search)
+        return messages if messages else []

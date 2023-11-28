@@ -1,23 +1,20 @@
 import os
 import uuid
-from typing import Optional
-from datetime import date
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Request, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.websockets import WebSocketDisconnect
 from utils import stream_response
+from fastapi.responses import StreamingResponse
 
 from memgpt_api import MemGptAPI
 
-from schemas import Session, Message, RecallMemoryStats
+from schemas import Session, Message
 
 load_dotenv()
 
 app = FastAPI()
-
 
 origins = [
     os.getenv("FRONT_URI", "http://localhost:8000"),
@@ -124,10 +121,24 @@ HTML = """
             max-width: 70%;
             overflow-wrap: break-word;
         }
+
+        .user-message {
+            background-color: #4CAF50;
+            color: #fff;
+            align-self: flex-end;
+            text-align: right;
+        }
+
+        .bot-message {
+            background-color: #008CBA;
+            color: #fff;
+            align-self: flex-start;
+            text-align: left;
+        }
     </style>
 </head>
 <body>
-    <h1> MemGPT Chats API Test - Websocket </h1>
+    <h1>MemGPT Chats API Test</h1>
 
     <div class="container" id="step1">
         <form onsubmit="initSession(event)" style="display: flex; flex-direction: row;">
@@ -168,11 +179,14 @@ HTML = """
             event.preventDefault();
         }
 
-        var ws = null;
+        var es = null;
         function connectSession(event) {
             var session_id = document.getElementById('session_id').value;
-            ws = new WebSocket('ws://localhost:8000/chat/socket/' + session_id);
-            ws.onopen = function(event) {
+            console.log('Connecting to session:', session_id);
+            
+            es = new EventSource('http://localhost:8000/chat/stream/' + session_id);
+            es.onopen = function(event) {
+                console.log('Event source opened:', event);
                 document.getElementById('State').innerHTML = 'Connected. Start chatting below.';
                 document.getElementById('step1').style.opacity = '0';
                 document.getElementById('step2').style.display = 'block';
@@ -181,19 +195,29 @@ HTML = """
                     document.getElementById('step2').style.opacity = '1';
                 }, 500);
             };
-            ws.onmessage = function(event) {
+            es.onmessage = function(event) {
+                console.log('Received message:', event);
                 var messages = document.getElementById('messages');
                 var message = document.createElement('p');
                 var content = document.createTextNode(event.data);
                 message.appendChild(content);
                 messages.appendChild(message);
             };
+            es.onerror = function(error) {
+                console.error('Event source encountered an error:', error);
+            };
             event.preventDefault();
         }
 
         function sendMessage(event) {
             var input = document.querySelector('input[name="message"]');
-            ws.send(input.value);
+            fetch('http://localhost:8000/chat/stream/' + document.getElementById('session_id').value, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ "prompt": input.value }),
+            });
             input.value = '';
             event.preventDefault();
         }
@@ -218,34 +242,23 @@ async def init():
     return Session(session=str(uuid.uuid4()))
 
 
-@app.websocket("/chat/socket/{session_id}")
-async def socket_chat(websocket: WebSocket, session_id: str):
+@app.get("/chat/stream/{session_id}")
+async def streaming_chat_get(session_id: str, request: Request):
     """
-    Chat websocket endpoint
+    Chat streaming endpoint for GET requests
 
     :param session_id: Session ID for agent
     """
-    try:
-        memgpt_api = MemGptAPI(session_id)
+    response = StreamingResponse(content=stream_response(""), media_type="text/event-stream")
+    response.headers["Content-Type"] = "text/event-stream"
 
-        await websocket.accept()
-        try:
-            while True:
-                prompt = await websocket.receive_text()
-                print("Waiting for api response......")
+    # Allow CORS for EventSource
+    response.headers["Access-Control-Allow-Origin"] = str(request.url)
 
-                message = memgpt_api.send_message(prompt)
-                await websocket.send_text(message)
-        except WebSocketDisconnect:
-            print("Client disconnected")
-
-    except Exception as err:
-        print(err)
-        await websocket.close()
-
+    return response
 
 @app.post("/chat/stream/{session_id}", response_class=StreamingResponse)
-async def streaming_chat(session_id: str, message: Message):
+async def streaming_chat_post(session_id: str, message: Message):
     """
     Chat streaming endpoint
 
@@ -253,29 +266,15 @@ async def streaming_chat(session_id: str, message: Message):
     """
     memgpt_api = MemGptAPI(session_id)
     message = memgpt_api.send_message(message.prompt)
+    
+    response = StreamingResponse(stream_response(message), media_type="text/event-stream")
+    response.headers["Content-Type"] = "text/event-stream"
+    return response
 
-    return StreamingResponse(stream_response(message), media_type="text/event-stream")
+async def stream_response(response):
+    try:
+        for chunk in response:
+            yield chunk
+    except WebSocketDisconnect:
+        pass
 
-@app.get("/memory/{session_id}/recall/stats", response_model=RecallMemoryStats)
-async def recall_memory(session_id: str):
-    """
-    Recall memory stats
-
-    :param session_id: Session ID for agent
-    """
-    memgpt_api = MemGptAPI(session_id)
-    stats = memgpt_api.get_recall_memory_stats()
-
-    return RecallMemoryStats(**stats)
-
-
-@app.get("/memory/{session_id}/recall/search")
-async def search_recall_memory(session_id: str, start_date: Optional[date] = None, end_date: Optional[date] = None, text_search: Optional[str] = None):
-    """
-    Search memory
-
-    :param session_id: Session ID for agent
-    :param query: Search query
-    """
-    memgpt_api = MemGptAPI(session_id)
-    return memgpt_api.search_recall_memory(start_date, end_date, text_search)
